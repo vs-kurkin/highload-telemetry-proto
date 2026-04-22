@@ -1,0 +1,35 @@
+# ruff: noqa
+"""Temporary docstring."""
+
+import os
+
+# Network Config
+MQTT_HOST = os.getenv("MQTT_HOST", "192.168.0.109")
+MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
+
+# Simulation Fleet
+NUM_ROBOTS = int(os.getenv("NUM_ROBOTS", 50))
+UPDATE_INTERVAL = float(os.getenv("UPDATE_INTERVAL", 0.1))  # 100ms
+
+# Battery Dynamics
+BATTERY_DRAIN_MIN = float(os.getenv("BATTERY_DRAIN_MIN", 0.01))
+BATTERY_DRAIN_MAX = float(os.getenv("BATTERY_DRAIN_MAX", 0.05))
+BATTERY_INITIAL_MIN = 20.0
+BATTERY_INITIAL_MAX = 100.0
+BATTERY_FULL_RECHARGE = 100.0
+CRITICAL_BATTERY_LEVEL = 5.0
+
+# Failure Events
+CRITICAL_FAILURE_CHANCE = float(os.getenv("CRITICAL_FAILURE_CHANCE", 0.001))
+
+# Load Testing Params
+LOAD_TOTAL_MESSAGES = int(os.getenv("LOAD_TOTAL_MESSAGES", 10000))
+LOAD_CONCURRENCY = int(os.getenv("LOAD_CONCURRENCY", 100))
+NUM_VIRTUAL_ROBOTS = 100
+YIELD_INTERVAL_MESSAGES = 100
+YIELD_SLEEP_DURATION = 0.01
+LATENCY_MS_MULTIPLIER = 1000
+
+# Formatting
+ROBOT_ID_FORMAT = "RBT-{i:03d}"
+LOAD_TEST_ID_FORMAT = "LOAD-TEST-{idx:03d}"

@@ -1,0 +1,24 @@
+{
+  "name": "highload-telemetry",
+  "version": "1.0.0",
+  "scripts": {
+    "setup": "pnpm install && pnpm -C backend exec pip install -r requirements.txt && pnpm -C frontend install && pnpm -C simulator exec pip install -r requirements.txt",
+    "docker:up": "docker compose up --build -d",
+    "docker:down": "docker compose down",
+    "docker:stop": "docker compose stop",
+    "docker:logs": "docker compose logs -f",
+    "docker:ps": "docker compose ps",
+    "test:backend": "pytest",
+    "test:frontend": "pnpm -C frontend exec vitest run",
+    "test:simulator": "pytest tests/unit/simulator/test_utils.py",
+    "test:coverage": "pnpm run test:backend && pnpm run test:frontend && pnpm run test:simulator",
+    "test": "pnpm run test:coverage",
+    "fix": "ruff format backend && ruff check backend --fix && pnpm -C frontend run format",
+    "lint": "ruff check backend && pnpm -C frontend run lint",
+    "typecheck": "mypy backend && pnpm -C frontend exec tsc --noEmit",
+    "migrate:make": "pnpm -C backend exec python manage.py makemigrations",
+    "migrate": "pnpm -C backend exec python manage.py migrate",
+    "lint:backend": "ruff check backend && mypy backend",
+    "lint:frontend": "pnpm -C frontend run lint"
+  }
+}

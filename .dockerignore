@@ -1,0 +1,15 @@
+node_modules/
+dist/
+venv/
+.venv/
+.env
+.pytest_cache/
+*.log
+*.pyc
+__pycache__/
+.idea/
+.vscode/
+test-results/
+.mypy_cache/
+.ruff_cache/
+htmlcov/

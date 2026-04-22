@@ -1,0 +1,23 @@
+# Python junk
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local envs
+.env
+.venv
+venv/
+env/
+
+# Git
+.git
+.gitignore
+
+# Docker logs
+*.log
+docker-compose.override.yml

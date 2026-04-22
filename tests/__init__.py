@@ -1,0 +1,2 @@
+# ruff: noqa
+"""Temporary docstring."""

@@ -1,0 +1,84 @@
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: ${DB_NAME:-telemetry_db}
+      POSTGRES_USER: ${DB_USER:-telemetry_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-supersecretpassword}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-telemetry_user} -d ${DB_NAME:-telemetry_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+
+  mosquitto:
+    build:
+      context: .
+      dockerfile: Dockerfile.mosquitto
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    command: mosquitto -c /mosquitto/config/mosquitto.conf
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    env_file: ./backend/.env
+    environment:
+      - MQTT_HOST=mosquitto
+      - REDIS_HOST=redis
+      - DB_HOST=db
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  mqtt-worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: python manage.py run_mqtt
+    env_file: ./backend/.env
+    environment:
+      - MQTT_HOST=mosquitto
+      - REDIS_HOST=redis
+      - DB_HOST=db
+    depends_on:
+      - backend
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
+    environment:
+      - REMOTE_HOST_IP=${REMOTE_HOST_IP:-127.0.0.1}
+    depends_on:
+      - backend
+
+  simulator:
+    build: ./simulator
+    env_file: ./backend/.env
+    environment:
+      - MQTT_HOST=mosquitto
+    depends_on:
+      - mosquitto
+
+volumes:
+  pgdata:
+  redisdata:
