@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:15-alpine
+    image: cr.yandex/mirror/library/postgres:15-alpine
     environment:
       POSTGRES_DB: ${DB_NAME:-telemetry_db}
       POSTGRES_USER: ${DB_USER:-telemetry_user}
@@ -16,7 +16,7 @@ services:
       retries: 5
 
   redis:
-    image: redis:7-alpine
+    image: cr.yandex/mirror/library/redis:7-alpine
     command: redis-server --appendonly yes
     ports:
       - "6379:6379"

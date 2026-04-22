@@ -11,6 +11,7 @@ psycopg[binary]
 redis
 gmqtt
 pydantic
+orjson
 python-dotenv
 pyjwt
 pytest

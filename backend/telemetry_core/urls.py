@@ -11,6 +11,7 @@ from rest_framework_simplejwt.views import (
 from robots.views import (
     AlertViewSet,
     CookieTokenObtainPairView,
+    CookieTokenRefreshView,
     DailyStatsViewSet,
     RobotViewSet,
     TelemetryViewSet,
@@ -26,6 +27,6 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/", include(router.urls)),
     path("api/token/", CookieTokenObtainPairView.as_view(), name="token_obtain_pair"),
-    path("api/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+    path("api/token/refresh/", CookieTokenRefreshView.as_view(), name="token_refresh"),
     path("", include("django_prometheus.urls")),
 ]

@@ -1,45 +1,55 @@
 # ruff: noqa
 """Temporary docstring."""
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.db import models
 
 from .constants import ROBOT_ID_MAX_LENGTH, STATUS_MAX_LENGTH
 
 if TYPE_CHECKING:
-    from datetime import date
+    from datetime import date, datetime
+    from django.db.models.manager import Manager
 
     class Robot(models.Model):
-        robot_id: models.CharField[str, str]
-        status: models.CharField[str, str]
-        last_seen: models.DateTimeField
+        robot_id: str
+        status: str
+        last_seen: datetime
+        telemetry: Manager["Telemetry"]
+        daily_stats: Manager["TelemetryDailyStats"]
+        alerts: Manager["Alert"]
 
         def __str__(self) -> str: ...
 
     class Telemetry(models.Model):
-        robot: models.ForeignKey[Robot, Robot]
-        battery_lvl: models.FloatField
-        status: models.CharField[str, str]
-        timestamp: models.DateTimeField
+        id: int
+        robot: Robot
+        robot_id: str
+        battery_lvl: float
+        status: str
+        timestamp: datetime
 
         def __str__(self) -> str: ...
 
     class TelemetryDailyStats(models.Model):
-        robot: models.ForeignKey[Robot, Robot]
-        date: models.DateField[date, date]
-        avg_battery: models.FloatField
-        min_battery: models.FloatField
-        max_battery: models.FloatField
-        message_count: models.IntegerField
+        id: int
+        robot: Robot
+        robot_id: str
+        date: date
+        avg_battery: float
+        min_battery: float
+        max_battery: float
+        message_count: int
 
         def __str__(self) -> str: ...
 
     class Alert(models.Model):
-        robot: models.ForeignKey[Robot, Robot]
-        message: models.TextField
-        created_at: models.DateTimeField
-        is_resolved: models.BooleanField
+        id: int
+        robot: Robot
+        robot_id: str
+        message: str
+        created_at: datetime
+        is_resolved: bool
 
         def __str__(self) -> str: ...
 else:

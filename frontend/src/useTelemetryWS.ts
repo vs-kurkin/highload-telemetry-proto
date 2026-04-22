@@ -1,103 +1,65 @@
-import { useEffect, useRef, useCallback } from 'react';
-import { useTelemetryStore } from './store';
-import { UI_CONFIG } from './config';
-
-interface TelemetryData {
-  battery: number;
-  status: string;
-}
-
-interface AlertPayload {
-  id: number;
-  robot_id: string;
-  message: string;
-  battery: number;
-}
-
-interface WSAlertMessage {
-  type: 'alert';
-  payload: AlertPayload;
-}
-
-interface WSTelemetryMessage {
-  type: 'telemetry_update';
-  data: Record<string, TelemetryData>;
-}
-
-function isAlertMessage(msg: unknown): msg is WSAlertMessage {
-  return (
-    typeof msg === 'object' &&
-    msg !== null &&
-    'type' in msg &&
-    (msg as Record<string, unknown>).type === 'alert'
-  );
-}
-
-function isTelemetryUpdateMessage(msg: unknown): msg is WSTelemetryMessage {
-  return (
-    typeof msg === 'object' &&
-    msg !== null &&
-    'type' in msg &&
-    (msg as Record<string, unknown>).type === 'telemetry_update'
-  );
-}
+import { useEffect, useRef } from 'react';
+import { useTelemetryStore } from '@/store';
+import { UI_CONFIG } from '@/config';
+// @ts-expect-error - Web Worker import might need special handling in some environments - Vite handles worker import with ?worker
+import TelemetryWorker from '@/telemetry.worker?worker';
 
 /**
- * Custom hook for managing telemetry WebSocket connection.
- * Handles authentication, automatic reconnection, and message dispatching.
+ * Custom hook for managing telemetry WebSocket connection via Web Worker.
+ * Offloads JSON parsing and handles intelligent subscriptions based on visibility.
  */
 export function useTelemetryWS() {
-  const { throttledUpdateTelemetry, addAlert, setWsStatus } = useTelemetryStore();
-  const reconnectTimeoutRef = useRef<number | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-
-  const connect = useCallback(() => {
-    const wsUrl = UI_CONFIG.WS_URL;
-
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      console.log("WS CONNECTED");
-      setWsStatus(true);
-    };
-
-    ws.onmessage = (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data);
-
-        if (isAlertMessage(data)) {
-          addAlert(data.payload);
-        } else if (isTelemetryUpdateMessage(data)) {
-          throttledUpdateTelemetry(data.data);
-        } else if (typeof data === 'object' && !data.type) {
-          // Fallback for raw map
-          throttledUpdateTelemetry(data);
-        }
-      } catch {
-        // Silently fail parsing
-      }
-    };
-
-    ws.onclose = () => {
-      setWsStatus(false);
-      reconnectTimeoutRef.current = window.setTimeout(connect, 3000);
-    };
-
-    ws.onerror = () => {
-      ws.close();
-    };
-  }, [addAlert, throttledUpdateTelemetry, setWsStatus]);
+  const { 
+    updateTelemetryBatch, addAlert, setWsStatus, visibleRobotIds 
+  } = useTelemetryStore();
+  
+  const workerRef = useRef<Worker | null>(null);
+  const prevVisibleIds = useRef<string[]>([]);
 
   useEffect(() => {
-    connect();
-    return () => {
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-      wsRef.current?.close();
-    };
-  }, [connect]);
+    // Initialize Worker
+    const worker = new TelemetryWorker();
+    workerRef.current = worker;
 
-  return { ws: wsRef.current };
+    worker.postMessage({ type: 'CONNECT', payload: UI_CONFIG.WS_URL });
+
+    worker.onmessage = (e: MessageEvent) => {
+      const { type, payload } = e.data;
+
+      switch (type) {
+        case 'WS_STATUS':
+          setWsStatus(payload);
+          break;
+        case 'ALERT':
+          addAlert(payload);
+          break;
+        case 'TELEMETRY_BATCH':
+          updateTelemetryBatch(payload);
+          break;
+      }
+    };
+
+    return () => {
+      worker.terminate();
+    };
+  }, [addAlert, updateTelemetryBatch, setWsStatus]);
+
+  // Handle Subscriptions based on visibility
+  useEffect(() => {
+    if (!workerRef.current) return;
+
+    const added = visibleRobotIds.filter(id => !prevVisibleIds.current.includes(id));
+    const removed = prevVisibleIds.current.filter(id => !visibleRobotIds.includes(id));
+
+    if (added.length > 0) {
+      workerRef.current.postMessage({ type: 'SUBSCRIBE', payload: added });
+    }
+    if (removed.length > 0) {
+      workerRef.current.postMessage({ type: 'UNSUBSCRIBE', payload: removed });
+    }
+
+    prevVisibleIds.current = visibleRobotIds;
+  }, [visibleRobotIds]);
+
+  return { worker: workerRef.current };
 }

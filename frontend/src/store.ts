@@ -1,6 +1,5 @@
 import { create } from 'zustand';
-import { UI_CONFIG } from './config';
-import throttle from 'lodash.throttle';
+import { UI_CONFIG } from '@/config';
 
 interface RobotData {
   battery: number;
@@ -38,51 +37,107 @@ interface APIAlert {
   is_resolved: boolean;
 }
 
+// Optimized fetch wrapper with automatic token refresh
+async function apiFetch(url: string, options: RequestInit = {}) {
+  const defaultOptions = {
+    ...options,
+    credentials: 'include' as const,
+    headers: {
+      ...options.headers,
+      'Content-Type': 'application/json',
+    },
+  };
+
+  let response = await fetch(url, defaultOptions);
+
+  if (response.status === 401 && !url.includes('token/refresh')) {
+    // Try to refresh token
+    const refreshRes = await fetch(`${UI_CONFIG.API_URL}token/refresh/`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+
+    if (refreshRes.ok) {
+      // Retry original request
+      response = await fetch(url, defaultOptions);
+    } else {
+      // Refresh failed, logout
+      sessionStorage.removeItem('is_auth');
+      window.location.reload();
+    }
+  }
+
+  return response;
+}
+
 interface TelemetryStore {
   robots: Record<string, RobotData>;
+  robotIds: string[]; // Separated for O(1) checks and efficient list rendering
   alerts: AlertData[];
   wsConnected: boolean;
   historicalStats: DailyStat[];
   isAuthenticated: boolean;
   selectedRobotId: string | null;
+  visibleRobotIds: string[]; // For WS subscriptions
   dataVersion: number;
-  setWsStatus: (status: boolean) => void;
-  selectRobot: (id: string | null) => void;
-  updateTelemetry: (data: Record<string, { battery: number, status: string }>) => void;
-  throttledUpdateTelemetry: (data: Record<string, { battery: number, status: string }>) => void;
-  addAlert: (alert: AlertData) => void;
-  resolveAlert: (id: number) => Promise<void>;
+  
+  setWsStatus: (_status: boolean) => void;
+  selectRobot: (_id: string | null) => void;
+  setVisibleRobots: (_ids: string[]) => void;
+  updateTelemetryBatch: (_data: Record<string, { battery: number, status: string }>) => void;
+  addAlert: (_alert: AlertData) => void;
+  resolveAlert: (_id: number) => Promise<void>;
   fetchInitialData: () => Promise<void>;
-  fetchHistoricalStats: (robotId?: string) => Promise<void>;
-  login: (username: string, password: string) => Promise<boolean>;
+  fetchHistoricalStats: (_robotId?: string) => Promise<void>;
+  login: (_username: string, _password: string) => Promise<boolean>;
   logout: () => void;
 }
 
-let updateBuffer: Record<string, { battery: number, status: string }> = {};
-
 export const useTelemetryStore = create<TelemetryStore>((set, get) => ({
   robots: {},
+  robotIds: [],
   alerts: [],
   wsConnected: false,
   historicalStats: [],
   isAuthenticated: sessionStorage.getItem('is_auth') === 'true',
   selectedRobotId: null,
+  visibleRobotIds: [],
   dataVersion: 0,
+
   setWsStatus: (status) => set({ wsConnected: status }),
   selectRobot: (id) => set({ selectedRobotId: id }),
-  updateTelemetry: (data) => set((state) => {
+  
+  setVisibleRobots: (ids) => {
+    const prev = get().visibleRobotIds;
+    // Simple equality check to avoid redundant updates
+    if (prev.length === ids.length && ids.every((v, i) => v === prev[i])) return;
+    set({ visibleRobotIds: ids });
+  },
+
+  updateTelemetryBatch: (data) => set((state) => {
     const newRobots = { ...state.robots };
     let hasChanges = false;
 
-    Object.entries(data).forEach(([rid, info]) => {
-      const current = newRobots[rid] || { battery: 0, status: 'OK', history: [] };
-      let oldHistory = Array.isArray(current.history) ? current.history : [];
+    for (const rid in data) {
+      const info = data[rid];
+      const current = newRobots[rid];
+      if (!current) continue;
 
-      if (oldHistory.length === 0) {
-        oldHistory = new Array(UI_CONFIG.HISTORY_POINTS).fill(info.battery);
+      // Circular buffer-like update without creating a new array reference every time
+      // unless we want to trigger a re-render of components observing this specific robot.
+      // Since RobotRow is memoized and depends on robot object reference, 
+      // we DO need a new object, but we can optimize the history array.
+      
+      const oldHistory = current.history;
+      let newHistory: number[];
+      
+      if (oldHistory.length < UI_CONFIG.HISTORY_POINTS) {
+        newHistory = [...oldHistory, info.battery];
+      } else {
+        // Reuse most of the array
+        newHistory = oldHistory.slice(1);
+        newHistory.push(info.battery);
       }
-
-      const newHistory = [...oldHistory, info.battery].slice(-UI_CONFIG.HISTORY_POINTS);
 
       newRobots[rid] = {
         battery: info.battery,
@@ -90,27 +145,25 @@ export const useTelemetryStore = create<TelemetryStore>((set, get) => ({
         history: newHistory
       };
       hasChanges = true;
-    });
+    }
 
     return hasChanges ? {
       robots: newRobots,
       dataVersion: state.dataVersion + 1
     } : state;
   }),
-  throttledUpdateTelemetry: throttle((data) => {
-    updateBuffer = { ...updateBuffer, ...data };
-    get().updateTelemetry(updateBuffer);
-    updateBuffer = {};
-  }, 100),
+
   addAlert: (alert) => set((state) => ({
     alerts: [alert, ...state.alerts].slice(0, UI_CONFIG.ALERTS_LIMIT)
   })),
+
   login: async (username, password) => {
     try {
       const response = await fetch(`${UI_CONFIG.API_URL}token/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
+        credentials: 'include'
       });
       if (response.ok) {
         sessionStorage.setItem('is_auth', 'true');
@@ -122,33 +175,32 @@ export const useTelemetryStore = create<TelemetryStore>((set, get) => ({
       return false;
     }
   },
+
   logout: () => {
     sessionStorage.removeItem('is_auth');
-    set({ isAuthenticated: false, robots: {}, alerts: [] });
+    set({ isAuthenticated: false, robots: {}, robotIds: [], alerts: [] });
   },
+
   resolveAlert: async (id) => {
     try {
-      const response = await fetch(`${UI_CONFIG.API_URL}alerts/${id}/resolve/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include'
+      const response = await apiFetch(`${UI_CONFIG.API_URL}alerts/${id}/resolve/`, {
+        method: 'POST'
       });
       if (response.ok) {
-        setTimeout(() => {
-          set((state) => ({
-            alerts: state.alerts.filter(a => a.id !== id)
-          }));
-        }, 300);
+        set((state) => ({
+          alerts: state.alerts.filter(a => a.id !== id)
+        }));
       }
-    } catch (error) {
-      console.error('Failed to resolve alert:', error);
+    } catch (_error) {
+      // Error is handled by not resolving the alert in UI
     }
   },
+
   fetchInitialData: async () => {
     try {
       const [robotsRes, alertsRes] = await Promise.all([
-        fetch(`${UI_CONFIG.API_URL}robots/`, { credentials: 'include' }),
-        fetch(`${UI_CONFIG.API_URL}alerts/`, { credentials: 'include' })
+        apiFetch(`${UI_CONFIG.API_URL}robots/`),
+        apiFetch(`${UI_CONFIG.API_URL}alerts/`)
       ]);
 
       if (robotsRes.ok && alertsRes.ok) {
@@ -157,50 +209,51 @@ export const useTelemetryStore = create<TelemetryStore>((set, get) => ({
 
         set((state) => {
           const newRobots = { ...state.robots };
-          if (Array.isArray(robotsData)) {
-            robotsData.forEach((r) => {
-              if (r && r.robot_id && !newRobots[r.robot_id]) {
-                newRobots[r.robot_id] = {
-                  battery: 0,
-                  status: r.status || 'UNKNOWN',
-                  history: []
-                };
-              }
-            });
-          }
+          const newIds: string[] = [];
+          
+          robotsData.forEach((r) => {
+            newIds.push(r.robot_id);
+            if (!newRobots[r.robot_id]) {
+              newRobots[r.robot_id] = {
+                battery: 0,
+                status: r.status || 'UNKNOWN',
+                history: []
+              };
+            }
+          });
 
           return {
             robots: newRobots,
+            robotIds: newIds.sort(),
             dataVersion: state.dataVersion + 1,
-            alerts: Array.isArray(alertsData) ? alertsData.map(a => ({
+            alerts: alertsData.map(a => ({
               id: a.id,
-              robot_id: a.robot_id || 'UNKNOWN',
-              message: a.message || '',
+              robot_id: a.robot_id,
+              message: a.message,
               battery: 0,
               created_at: a.created_at
-            })) : []
+            }))
           };
         });
-      } else if (robotsRes.status === 401) {
-        sessionStorage.removeItem('is_auth');
-        set({ isAuthenticated: false });
       }
-    } catch (error) {
-      console.error('Failed to fetch initial data:', error);
+    } catch (_error) {
+      // Error handled by empty initial state
     }
   },
+
   fetchHistoricalStats: async (robotId) => {
     try {
       const url = robotId
         ? `${UI_CONFIG.API_URL}stats/?robot_id=${robotId}`
         : `${UI_CONFIG.API_URL}stats/`;
-      const res = await fetch(url, { credentials: 'include' });
+      const res = await apiFetch(url);
       if (res.ok) {
         const data: DailyStat[] = await res.json();
         set({ historicalStats: data });
       }
-    } catch (error) {
-      console.error('Failed to fetch historical stats:', error);
+    } catch (_error) {
+      // Error handled by not updating stats
     }
   }
 }));
+

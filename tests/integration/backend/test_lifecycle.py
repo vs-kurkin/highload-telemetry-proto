@@ -34,11 +34,17 @@ async def test_daily_aggregation(mock_redis):
     robot, _ = await sync_to_async(Robot.objects.get_or_create)(robot_id=robot_id)
     yesterday = timezone.now() - timedelta(days=1)
 
-    await sync_to_async(Telemetry.objects.create)(robot=robot, battery_lvl=40.0, status="OK", timestamp=yesterday)
-    await sync_to_async(Telemetry.objects.create)(robot=robot, battery_lvl=60.0, status="OK", timestamp=yesterday)
+    await sync_to_async(Telemetry.objects.create)(
+        robot=robot, battery_lvl=40.0, status="OK", timestamp=yesterday
+    )
+    await sync_to_async(Telemetry.objects.create)(
+        robot=robot, battery_lvl=60.0, status="OK", timestamp=yesterday
+    )
 
     await handler.prune_old_telemetry()
 
-    stats = await sync_to_async(TelemetryDailyStats.objects.get)(robot_id=robot_id, date=yesterday.date())
+    stats = await sync_to_async(TelemetryDailyStats.objects.get)(
+        robot_id=robot_id, date=yesterday.date()
+    )
     assert stats.avg_battery == 50.0
     assert stats.message_count == 2

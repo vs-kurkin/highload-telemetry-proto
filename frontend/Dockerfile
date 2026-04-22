@@ -1,5 +1,5 @@
 # Build stage
-FROM node:24-alpine as build
+FROM cr.yandex/mirror/library/node:24-alpine as build
 RUN npm install -g pnpm
 WORKDIR /app
 COPY package.json ./
@@ -8,7 +8,7 @@ COPY . .
 RUN pnpm run build
 
 # Production stage
-FROM nginx:stable-alpine
+FROM cr.yandex/mirror/library/nginx:stable-alpine
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
