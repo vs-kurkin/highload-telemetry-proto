@@ -37,9 +37,9 @@
   - Аутентификация IoT-устройств через MQTT-пароли с изоляцией топиков.
   - Строгая валидация входящих JSON-payload'ов.
 
-## 4. Мануал по развертыванию
+## 4. Развертывание
 
-Сервис полностью контейнеризирован. Для локального запуска требуется только Docker и Docker Compose.
+Сервис полностью контейнеризирован. Для локального запуска требуется только Docker и Docker Compose. Сборка и запуск контейнеров осуществляются через скрипты менеджера пакетов.
 
 ```bash
 # Клонирование репозитория
@@ -47,7 +47,7 @@ git clone https://github.com/vs-kurkin/highload-telemetry-proto.git
 cd highload-telemetry-proto
 
 # Запуск всех сервисов в фоновом режиме (БД, Redis, MQTT, Backend, Frontend, Simulator)
-docker-compose up -d --build
+pnpm docker:up
 ```
 
 Доступные интерфейсы после запуска:
@@ -55,7 +55,7 @@ docker-compose up -d --build
 - **Backend API:** [http://localhost:8000/api/](http://localhost:8000/api/)
 - **MQTT Broker:** `localhost:1883`
 
-## 5. Мануал по конфигурированию
+## 5. Конфигурирование
 
 Конфигурация осуществляется преимущественно через переменные окружения (`.env` файлы).
 
@@ -86,7 +86,7 @@ ALLOWED_HOSTS=localhost,127.0.0.1,backend
 **Mosquitto:**
 Конфигурация MQTT брокера расположена в `mosquitto.conf`. По умолчанию включена аутентификация по паролю (`allow_anonymous false` и указан `password_file`).
 
-## 6. Мануал по тестированию
+## 6. Тестирование
 
 Проект покрыт unit и интеграционными тестами. Для удобства запуска тестов предусмотрены скрипты в `package.json`.
 
@@ -94,19 +94,19 @@ ALLOWED_HOSTS=localhost,127.0.0.1,backend
 
 ```bash
 # Установка всех зависимостей
-pnpm run setup
+pnpm setup
 
 # Запуск тестов backend (Pytest, in-memory SQLite, моки Redis)
-pnpm run test:backend
+pnpm test:backend
 
 # Запуск тестов frontend (Vitest)
-pnpm run test:frontend
+pnpm test:frontend
 
 # Запуск тестов симулятора
-pnpm run test:simulator
+pnpm test:simulator
 
 # Запуск всех тестов в проекте (Coverage)
-pnpm run test:coverage
+pnpm test:coverage
 ```
 
 ### Линтинг и типизация (Zero-Any policy)
@@ -114,9 +114,9 @@ pnpm run test:coverage
 
 ```bash
 # Проверка типов и статический анализ (Mypy, Ruff, TypeScript, ESLint)
-pnpm run lint
-pnpm run typecheck
+pnpm lint
+pnpm typecheck
 
 # Автоформатирование кода
-pnpm run fix
+pnpm fix
 ```
