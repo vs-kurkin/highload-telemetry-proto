@@ -2,41 +2,121 @@
 
 Сервис агрегации и мониторинга телеметрии IoT-устройств. Целевая пропускная способность: 1000+ rps.
 
-## Архитектура
+## 2. Стек
 
-- **Ingress (Mosquitto):** MQTT-брокер, прием подключений от устройств.
-- **Buffer (Redis):** Промежуточное хранение сообщений для сглаживания пиковых нагрузок перед записью в БД.
-- **DLQ (Redis):** Очередь недоставленных сообщений (`telemetry_buffer_dlq`). Изолирует сбойные пакеты после 3 неудачных попыток записи в БД (защита от Head-of-Line blocking).
-- **Storage (PostgreSQL):** Долгосрочное хранилище. Запись выполняется батчами (`bulk_create`). Очистка устаревших данных — порционная (Chunked Deletes, `LIMIT 10000`).
-- **WebSockets (Django Channels):** Трансляция данных клиентам. Реализовано мультиплексирование: отправка только по явному запросу подписки от клиента.
+**Backend:**
+- Python 3.12, Django 5.x, Django Channels (WebSockets)
+- Redis (Buffer, DLQ, Cache)
+- PostgreSQL (Primary Storage)
+- Eclipse Mosquitto (MQTT Broker)
+- Pytest, Ruff, Mypy
 
-## Оптимизации
+**Frontend:**
+- React 18, TypeScript, Vite
+- Zustand (State Management)
+- Chart.js / react-chartjs-2 (Визуализация)
+- Vitest, ESLint
 
-- **Асинхронность:** Неблокирующий I/O пайплайн от извлечения из Redis до отправки в WebSockets.
-- **Time-Series API:** Read-Only REST эндпоинт `/api/telemetry/` для истории метрик (LimitOffsetPagination, фильтрация).
-- **Frontend Throttling:** Накопление обновлений в буфере (Zustand) и рендеринг интерфейса с фиксированным интервалом.
-- **Frontend Memoization:** Использование `React.memo` и хуков для предотвращения избыточных рендеров при обновлении отдельных устройств.
-- **Connection Pooling:** Пул соединений с БД для высококонкурентной среды.
+**Simulator (Нагрузочное тестирование):**
+- Python 3.12, asyncio, paho-mqtt
 
-## Безопасность и Авторизация
+**Инфраструктура:**
+- Docker, Docker Compose
+- Nginx (Reverse Proxy & Static File Serving)
 
-- Доступ к API и WebSockets по JWT (`HttpOnly`) и статическим токенам (`401 Unauthorized` при отсутствии).
-- Аутентификация устройств по MQTT-паролям для разграничения доступа к топикам.
-- База данных и кэш изолированы во внутренней Docker-сети.
-- Строгая валидация входящих JSON-схем.
+## 3. Технические и архитектурные решения, особенности, фичи
 
-## Типизация и Тестирование
+- **Асинхронный Ingress Pipeline:** Эффективный прием MQTT сообщений через Mosquitto с последующей неблокирующей обработкой.
+- **Многоуровневая буферизация (Redis):** Использование Redis в качестве промежуточного буфера перед PostgreSQL сглаживает пиковые нагрузки записи.
+- **Dead Letter Queue (DLQ):** Изоляция сбойных пакетов (после 3 неудачных попыток записи в БД) в Redis для предотвращения Head-of-Line blocking и сохранения отказоустойчивости конвейера.
+- **Оптимизированное хранилище (PostgreSQL):** Массовая вставка (`bulk_create`) и порционная очистка старых данных (Chunked Deletes, `LIMIT 10000`).
+- **Событийно-ориентированный UI (WebSockets):** Django Channels транслирует данные клиентам с мультиплексированием — отправка только по явному запросу подписки (`subscribe`).
+- **Frontend Throttling и Мемоизация:** Использование Zustand для буферизации обновлений состояния и `React.memo` для минимизации лишних рендеров графиков при высокой частоте входящих метрик.
+- **Безопасность:**
+  - Доступ к API и WebSockets по JWT (`HttpOnly`) и статическим токенам (`401 Unauthorized` при отсутствии).
+  - Аутентификация IoT-устройств через MQTT-пароли с изоляцией топиков.
+  - Строгая валидация входящих JSON-payload'ов.
 
-- **Типизация:** Frontend — TypeScript (Zero-Any). Backend — Python Type Hints (PEP 484).
-- **Тестирование (GWT):** Unit (Pytest, Vitest, мокирование `asyncio` и Redis), Integration (in-memory SQLite), Resilience (проверка перенаправления в DLQ при отказах БД).
+## 4. Мануал по развертыванию
 
-## Развертывание
+Сервис полностью контейнеризирован. Для локального запуска требуется только Docker и Docker Compose.
 
 ```bash
-docker buildx bake
-pnpm compose:up
+# Клонирование репозитория
+git clone https://github.com/vs-kurkin/highload-telemetry-proto.git
+cd highload-telemetry-proto
+
+# Запуск всех сервисов в фоновом режиме (БД, Redis, MQTT, Backend, Frontend, Simulator)
+docker-compose up -d --build
 ```
 
----
-**Technical Specification Compliance:** 2.0.0 (Highload Telemetry Resilience & API v2)
-**Project:** NetAgent / Highload Telemetry
+Доступные интерфейсы после запуска:
+- **Frontend (UI):** [http://localhost:80](http://localhost:80) или порт, указанный в Nginx.
+- **Backend API:** [http://localhost:8000/api/](http://localhost:8000/api/)
+- **MQTT Broker:** `localhost:1883`
+
+## 5. Мануал по конфигурированию
+
+Конфигурация осуществляется преимущественно через переменные окружения (`.env` файлы).
+
+Пример минимального `.env` файла в корне или в директории `backend/`:
+```env
+# База данных
+POSTGRES_DB=telemetry
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+POSTGRES_HOST=db
+POSTGRES_PORT=5432
+
+# Redis
+REDIS_URL=redis://redis:6379/0
+
+# MQTT Брокер
+MQTT_BROKER_HOST=mosquitto
+MQTT_BROKER_PORT=1883
+MQTT_USERNAME=admin
+MQTT_PASSWORD=adminpass
+
+# Безопасность
+SECRET_KEY=your-secret-key
+DEBUG=False
+ALLOWED_HOSTS=localhost,127.0.0.1,backend
+```
+
+**Mosquitto:**
+Конфигурация MQTT брокера расположена в `mosquitto.conf`. По умолчанию включена аутентификация по паролю (`allow_anonymous false` и указан `password_file`).
+
+## 6. Мануал по тестированию
+
+Проект покрыт unit и интеграционными тестами. Для удобства запуска тестов предусмотрены скрипты в `package.json`.
+
+**Требования для локального запуска:** `pnpm`, `python 3.12`, `pip`.
+
+```bash
+# Установка всех зависимостей
+pnpm run setup
+
+# Запуск тестов backend (Pytest, in-memory SQLite, моки Redis)
+pnpm run test:backend
+
+# Запуск тестов frontend (Vitest)
+pnpm run test:frontend
+
+# Запуск тестов симулятора
+pnpm run test:simulator
+
+# Запуск всех тестов в проекте (Coverage)
+pnpm run test:coverage
+```
+
+### Линтинг и типизация (Zero-Any policy)
+В проекте действует строгая типизация. Любые PR должны проходить проверки линтеров и тайп-чекеров.
+
+```bash
+# Проверка типов и статический анализ (Mypy, Ruff, TypeScript, ESLint)
+pnpm run lint
+pnpm run typecheck
+
+# Автоформатирование кода
+pnpm run fix
+```
